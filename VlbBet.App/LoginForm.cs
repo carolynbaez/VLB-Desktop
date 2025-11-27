@@ -143,9 +143,6 @@ namespace VlbBet.App
             }
         }
 
-        // ==== Lógica básica de login (para conectar luego al API) ====
-
-
         private async void btnLogin_Click(object sender, EventArgs e)
         {
             lblError.Visible = false;
@@ -197,13 +194,6 @@ namespace VlbBet.App
             {
                 ShowError("Error al iniciar sesión: " + ex.Message);
             }
-        }
-
-        private void btnRegister_Click(object sender, EventArgs e)
-        {
-            // Aquí puedes abrir un form de registro o ir a tu web
-            MessageBox.Show("Aquí iría el registro de nuevo jugador.", "Registro",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void ShowError(string msg)

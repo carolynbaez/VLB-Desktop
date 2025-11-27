@@ -3,12 +3,13 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using VlbBet.Core;
 
 namespace VlbBet.Infrastructure
 {
     public static class AppState
     {
-        public static ApiSession Api; // sesión compartida (cookies, headers, etc.)
+        public static ApiSession Api; 
     }
     public sealed class ApiSession : IDisposable
     {
@@ -50,16 +51,19 @@ namespace VlbBet.Infrastructure
             };
         }
 
-        public void AddCookie(string name, string value, string path = "/")
-        {
-            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("cookie name requerido.", nameof(name));
-            Cookies.Add(BaseAddress, new Cookie(name, value, path));
-        }
-
         public void Dispose()
         {
             Http?.Dispose();
             _handler?.Dispose();
         }
+
+        public void RefreshAuthorization()
+        {
+            Http.DefaultRequestHeaders.Remove("Authorization");
+            var token = AppSession.SessionId;
+            if (!string.IsNullOrWhiteSpace(token))
+                Http.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", token);
+        }
+
     }
 }
