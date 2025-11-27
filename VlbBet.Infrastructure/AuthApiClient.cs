@@ -8,7 +8,7 @@ namespace VlbBet.Infrastructure
     {
 
         public AuthApiClient()
-            : this(new ApiSession("https://vlb.virsbet.com"))
+            : this(new ApiSession(new Uri("https://vlb.virsbet.com")))
         {
             _ownsSession = true;
         }

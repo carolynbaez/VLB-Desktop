@@ -1,69 +1,44 @@
 ﻿using System;
-using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using VlbBet.Core;
 
 namespace VlbBet.Infrastructure
 {
-    public static class AppState
-    {
-        public static ApiSession Api; 
-    }
     public sealed class ApiSession : IDisposable
     {
-        private readonly HttpClientHandler _handler;
-
         public HttpClient Http { get; }
-        public CookieContainer Cookies { get { return _handler.CookieContainer; } }
         public JsonSerializerOptions Json { get; }
-        public Uri BaseAddress { get; }
 
-        public ApiSession(string baseUrl, TimeSpan? timeout = null)
+        public ApiSession(Uri baseAddress)
         {
-            if (string.IsNullOrWhiteSpace(baseUrl))
-                throw new ArgumentException("baseUrl requerido.", nameof(baseUrl));
+            if (baseAddress == null) throw new ArgumentNullException(nameof(baseAddress));
 
-            BaseAddress = new Uri(baseUrl.TrimEnd('/'));
-
-            _handler = new HttpClientHandler
-            {
-                UseCookies = true,
-                CookieContainer = new CookieContainer(),
-                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-            };
-
-            Http = new HttpClient(_handler)
-            {
-                BaseAddress = BaseAddress,
-                Timeout = timeout ?? TimeSpan.FromSeconds(30)
-            };
-
-            Http.DefaultRequestHeaders.Accept.Clear();
-            Http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            Http.DefaultRequestHeaders.UserAgent.ParseAdd("VlbBet.WinForms/1.0");
+            Http = new HttpClient { BaseAddress = baseAddress };
 
             Json = new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                PropertyNameCaseInsensitive = true
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
             };
         }
 
-        public void Dispose()
+        /// <summary>
+        /// Aplica header Authorization (SIN Bearer) desde AppSession.SessionId.
+        /// Debe llamarse antes de cada request si el token puede cambiar.
+        /// </summary>
+        public void ApplyAuthorizationFromApp()
         {
-            Http?.Dispose();
-            _handler?.Dispose();
-        }
-
-        public void RefreshAuthorization()
-        {
-            Http.DefaultRequestHeaders.Remove("Authorization");
+            // Ajusta aquí si tu SessionId está en otro lado:
             var token = AppSession.SessionId;
+
+            Http.DefaultRequestHeaders.Remove("authorization");
+
             if (!string.IsNullOrWhiteSpace(token))
-                Http.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", token);
+                Http.DefaultRequestHeaders.TryAddWithoutValidation("authorization", token.Trim());
         }
 
+        public void Dispose() => Http.Dispose();
     }
 }

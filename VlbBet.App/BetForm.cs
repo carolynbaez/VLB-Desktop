@@ -38,7 +38,7 @@ namespace VlbBet.App
 
                 var baseAddress = "https://vlb.virsbet.com/";
 
-                _apiSession = new ApiSession(baseAddress);
+                _apiSession = new ApiSession(new Uri (baseAddress));
                 _ticketClient = new TicketApiClient(_apiSession);
 
                 _mqttClient = new MqttGameClient("vlb.virsbet.com", 1883);
@@ -232,6 +232,7 @@ namespace VlbBet.App
                 if (_mqttClient != null)
                     await _mqttClient.ConnectAsync();
 
+                _apiSession.ApplyAuthorizationFromApp();
                 await LoadTicketsAsync();
             }
             catch (Exception ex)

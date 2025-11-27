@@ -19,7 +19,7 @@ namespace VlbBet.App
 
             var baseAddress = "https://vlb.virsbet.com/";
 
-            _ticketClient = ticketClient ?? new TicketApiClient(new ApiSession(baseAddress));
+            _ticketClient = ticketClient ?? new TicketApiClient(new ApiSession(new Uri(baseAddress)));
 
             _cashDrawerApiClient = new CashDrawerApiClient(new Uri(baseAddress));
 
