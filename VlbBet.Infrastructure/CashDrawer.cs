@@ -1,216 +1,205 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using VlbBet.Core;
 
 namespace VlbBet.Infrastructure
 {
-    /// <summary>
-    /// API Client para Cuadre de Caja / Venta.
-    /// BaseAddress recomendado: https://vlb.virsbet.com
-    ///
-    /// Nota:
-    /// - /venta es UI (React). Los endpoints JSON reales suelen ser /venta/... o /api/venta/... según tu Node.
-    /// - Estos paths quedan configurables para que no tengas que tocar código al cambiar rutas.
-    /// </summary>
-    public sealed class CashDrawerApiClient : ApiClientBase
+    public sealed class CashDrawerApiClient : IDisposable
     {
-        // ========= ENDPOINTS (AJUSTABLES) =========
+        private const string BalanceEndpoint = "https://vlb.virsbet.com/run/venta";
 
-        /// <summary>
-        /// Endpoint que devuelve el balance/cuadre por rango de fechas.
-        /// Ejemplos comunes:
-        ///  - "/venta/balance"
-        ///  - "/api/venta/balance"
-        /// Puede ser GET con query o POST con body; aquí lo hacemos POST.
-        /// </summary>
-        public string BalancePath { get; set; } = "/venta";
+        private readonly HttpClient _http;
+        private readonly JsonSerializerOptions _json;
 
-        /// <summary>
-        /// Endpoint para listar tickets de un balance por id.
-        /// Ejemplos:
-        ///  - "/venta/balance/{id}/tickets"
-        ///  - "/api/venta/balance/{id}/tickets"
-        /// </summary>
-        public string BalanceTicketsPathTemplate { get; set; } = "/venta/balance/{0}/tickets";
-
-        /// <summary>
-        /// Endpoint para "cerrar" / generar el cuadre por fechas.
-        /// Si tu backend usa el mismo BalancePath para generar el cuadre, apunta esto al mismo.
-        /// </summary>
-        public string CloseCashDrawerPath { get; set; } = "/venta/cuadre";
-
-        /// <summary>
-        /// Endpoint para imprimir reporte del cuadre.
-        /// Ejemplos:
-        ///  - "/venta/cuadre/print"
-        ///  - "/venta/balance/print"
-        /// </summary>
-        public string PrintReportPath { get; set; } = "/venta/cuadre/print";
-
-        /// <summary>
-        /// Endpoint de reimpresión / pago tickets existente en tu sistema.
-        /// (Ya lo vienes usando con PayTicketRawAsync en TicketApiClient)
-        /// </summary>
-        public string TicketPayPath { get; set; } = "/ticket/pay";
-
-        public CashDrawerApiClient(ApiSession session) : base(session) { }
-
-        // ========= METODOS =========
-
-        /// <summary>
-        /// Consulta el balance/cuadre en rango [from,to].
-        /// </summary>
-        public Task<CashBalanceDto> GetBalanceAsync(
-            DateTime from,
-            DateTime to,
-            string user = null,
-            string point = null,
-            CancellationToken ct = default)
+        public CashDrawerApiClient(Uri baseAddress)
         {
-            var req = new BalanceRangeRequest
+            if (baseAddress == null) throw new ArgumentNullException(nameof(baseAddress));
+
+            if (!baseAddress.AbsoluteUri.EndsWith("/"))
+                baseAddress = new Uri(baseAddress.AbsoluteUri + "/");
+
+            _http = new HttpClient { BaseAddress = baseAddress };
+
+            _json = new JsonSerializerOptions
             {
-                from = from,
-                to = to,
-                user = AppSession.User,
-                point = point
+                PropertyNameCaseInsensitive = true,
+                NumberHandling = JsonNumberHandling.AllowReadingFromString
+            };
+        }
+
+        /// <summary>
+        /// Obtiene el balance de caja entre fechas y usuario.
+        /// POST: { init:"yyyy-MM-dd", end:"yyyy-MM-dd", user:{ _id:"...", point:"..." } }
+        /// </summary>
+
+        public async Task<CashDrawerBalanceDto> GetBalanceAsync(
+    DateTime init,
+    DateTime end,
+    string userId,
+    string userPoint,
+    CancellationToken ct = default)
+        {
+            var req = new CashDrawerBalanceRequest
+            {
+                init = init,
+                end = end,
+                User = new UserReq { _Id = userId, Point = userPoint }
             };
 
-            return PostAsync<BalanceRangeRequest, CashBalanceDto>(BalancePath, req, ct);
-        }
+            var body = JsonSerializer.Serialize(req, _json);
+            using var content = new StringContent(body, Encoding.UTF8, "application/json");
 
-        /// <summary>
-        /// Crea / cierra el cuadre con rango [from,to].
-        /// Si tu backend no diferencia "consultar" vs "cerrar", usa el mismo endpoint en CloseCashDrawerPath.
-        /// </summary>
-        public Task<CashBalanceDto> CloseCashDrawerAsync(
-            DateTime from,
-            DateTime to,
-            string user = null,
-            string point = null,
-            CancellationToken ct = default)
-        {
-            var req = new BalanceRangeRequest
+            // Header Authorization
+            _http.DefaultRequestHeaders.Remove("Authorization");
+            _http.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", AppSession.SessionId);
+
+            using var response = await _http.PostAsync(BalanceEndpoint, content).ConfigureAwait(false);
+
+            var raw = (await response.Content.ReadAsStringAsync().ConfigureAwait(false))?.Trim() ?? "";
+
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {raw}");
+
+            // Si el backend responde un string JSON: "Favor Seleccionar Intervalo de fecha"
+            if (raw.StartsWith("\"") && raw.EndsWith("\""))
             {
-                from = from,
-                to = to,
-                user = user,
-                point = point
-            };
-
-            return PostAsync<BalanceRangeRequest, CashBalanceDto>(CloseCashDrawerPath, req, ct);
-        }
-
-        /// <summary>
-        /// Lista tickets que pertenecen a un balance por balanceId.
-        /// </summary>
-        public async Task<List<CashTicketDto>> GetTicketsForBalanceAsync(string balanceId, CancellationToken ct = default)
-        {
-            if (string.IsNullOrWhiteSpace(balanceId))
-                throw new ArgumentException("balanceId es requerido.", nameof(balanceId));
-
-            var url = string.Format(BalanceTicketsPathTemplate, Uri.EscapeDataString(balanceId.Trim()));
-
-            // Si tu ApiClientBase NO tiene GetAsync<T>, entonces cambia esto a PostAsync<SomeReq, List<CashTicketDto>>
-            // y manda el id en el body. Aquí asumo que tienes GetAsync.
-            var list = await GetAsync<List<CashTicketDto>>(url, ct).ConfigureAwait(false);
-            return list ?? new List<CashTicketDto>();
-        }
-
-        /// <summary>
-        /// Reimprime un lote de tickets (uno a uno) usando TicketPayPath con action="repeat".
-        /// </summary>
-        public async Task<PrintBatchResult> PrintTicketsAsync(IEnumerable<string> tickets, CancellationToken ct = default)
-        {
-            if (tickets == null) throw new ArgumentNullException(nameof(tickets));
-
-            var result = new PrintBatchResult();
-
-            var uniq = tickets
-                .Where(t => !string.IsNullOrWhiteSpace(t))
-                .Select(t => t.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            foreach (var tk in uniq)
-            {
-                try
-                {
-                    var payload = new { ticket = tk, action = "repeat" };
-
-                    // Ideal: PostRawAsync (para cuando el backend devuelve texto o json libre).
-                    // Si tu ApiClientBase no tiene PostRawAsync, usa el fallback comentado abajo.
-                    var raw = await PostRawAsync(TicketPayPath, payload, ct).ConfigureAwait(false);
-
-                    result.Success.Add(new PrintTicketResult
-                    {
-                        Ticket = tk,
-                        RawResponse = raw
-                    });
-                }
-                catch (Exception ex)
-                {
-                    result.Failed.Add(new PrintTicketResult
-                    {
-                        Ticket = tk,
-                        Error = ex.Message
-                    });
-                }
+                var msg = JsonSerializer.Deserialize<string>(raw, _json) ?? raw;
+                throw new InvalidOperationException(msg);
             }
 
-            return result;
-        }
-
-        /// <summary>
-        /// Imprime todos los tickets que pertenecen a un balance (consulta lista y luego reimprime).
-        /// </summary>
-        public async Task<PrintBatchResult> PrintTicketsForBalanceAsync(string balanceId, CancellationToken ct = default)
-        {
-            var list = await GetTicketsForBalanceAsync(balanceId, ct).ConfigureAwait(false);
-            var nums = list.Select(x => x?.Num).Where(x => !string.IsNullOrWhiteSpace(x));
-            return await PrintTicketsAsync(nums, ct).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// Dispara la impresión del REPORTE de cuadre por rango de fechas.
-        /// Devuelve "raw" para debug (ok/error).
-        /// </summary>
-        public Task<string> PrintReportAsync(DateTime from, DateTime to, string user = null, string point = null, CancellationToken ct = default)
-        {
-            var req = new BalanceRangeRequest
+            try
             {
-                from = from,
-                to = to,
-                user = user,
-                point = point
-            };
-            return PostRawAsync(PrintReportPath, req, ct);
+                var dto = JsonSerializer.Deserialize<CashDrawerBalanceDto>(raw, _json);
+                if (dto == null) throw new InvalidOperationException("Respuesta inválida (DTO nulo).");
+                return dto;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"No se pudo convertir el JSON a CashDrawerBalanceDto.\n\nDetalle: {ex.Message}\n\nJSON RAW:\n{raw}", ex);
+            }
         }
 
-        /// <summary>
-        /// Dispara impresión del REPORTE por balanceId.
-        /// </summary>
-        public Task<string> PrintReportByBalanceIdAsync(string balanceId, CancellationToken ct = default)
+
+        private async Task<CashDrawerBalanceDto> ReadAsDto(HttpResponseMessage response, CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(balanceId))
-                throw new ArgumentException("balanceId es requerido.", nameof(balanceId));
+            var raw = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-            var req = new { id = balanceId.Trim() };
-            return PostRawAsync(PrintReportPath, req, ct);
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {raw}");
+
+            if (string.IsNullOrWhiteSpace(raw))
+                throw new InvalidOperationException("Respuesta vacía del servidor.");
+
+            try
+            {
+                using var doc = JsonDocument.Parse(raw);
+                var kind = doc.RootElement.ValueKind;
+
+                // Si el backend devuelve array u otra cosa, lo reportamos con claridad
+                if (kind != JsonValueKind.Object)
+                    throw new InvalidOperationException($"La respuesta no es un objeto JSON (root={kind}).\n\nJSON RAW:\n{raw}");
+
+                // Si viene envuelto { data: {...} }
+                if (doc.RootElement.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.Object)
+                {
+                    var dtoFromData = dataEl.Deserialize<CashDrawerBalanceDto>(_json);
+                    if (dtoFromData == null) throw new InvalidOperationException("DTO nulo en data.");
+                    return dtoFromData;
+                }
+
+                // Directo { betted, paid, deposito, ... }
+                var dto = doc.RootElement.Deserialize<CashDrawerBalanceDto>(_json);
+                if (dto == null) throw new InvalidOperationException("DTO nulo.");
+                return dto;
+            }
+            catch (Exception ex)
+            {
+                // ✅ Esto te dirá EXACTAMENTE lo que vino del API
+                throw new InvalidOperationException(
+                    $"No se pudo convertir el JSON a CashDrawerBalanceDto.\n\nDetalle: {ex.Message}\n\nJSON RAW:\n{raw}", ex);
+            }
         }
 
-        // ========= REQUEST MODELS (internos) =========
-        // (No inventan DTOs de respuesta; solo body de request)
+        public void Dispose() => _http?.Dispose();
 
-        private sealed class BalanceRangeRequest
+        private sealed class ApiEnvelope<T>
         {
-            public DateTime from { get; set; }
-            public DateTime to { get; set; }
-            public string user { get; set; }
-            public string point { get; set; }
+            [JsonPropertyName("ok")]
+            public bool Ok { get; set; }
+
+            [JsonPropertyName("message")]
+            public string Message { get; set; }
+
+            [JsonPropertyName("data")]
+            public T Data { get; set; }
         }
+    }
+
+    public sealed class CashDrawerBalanceRequest
+    {
+        [JsonPropertyName("init")]
+        public DateTime init { get; set; }
+
+        [JsonPropertyName("end")]
+        public DateTime end { get; set; }
+
+        [JsonPropertyName("user")]
+        public UserReq User { get; set; }
+    }
+
+    public sealed class UserReq
+    {
+        [JsonPropertyName("_id")]
+        public string _Id { get; set; }
+
+        [JsonPropertyName("point")]
+        public string Point { get; set; }
+    }
+
+    public sealed class CashDrawerBalanceDto
+    {
+        [JsonPropertyName("betted")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Betted { get; set; }
+
+        [JsonPropertyName("winned")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Winned { get; set; }
+
+        [JsonPropertyName("paid")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Paid { get; set; }
+
+        [JsonPropertyName("balance")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Balance { get; set; }
+
+        [JsonPropertyName("deposito")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Deposito { get; set; }
+
+        [JsonPropertyName("retiro")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Retiro { get; set; }
+
+        [JsonPropertyName("balancePlayer")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? BalancePlayer { get; set; }
+
+        [JsonPropertyName("total")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Total { get; set; }
+
+        [JsonPropertyName("point")]
+        public string Point { get; set; }
+
+        [JsonPropertyName("tickets")]
+        public JsonElement Tickets { get; set; }
     }
 }

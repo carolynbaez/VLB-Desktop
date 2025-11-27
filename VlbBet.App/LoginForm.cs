@@ -219,7 +219,8 @@ namespace VlbBet.App
             AppSession.Name = res.name;
             AppSession.Point = res.point;
             AppSession.User = res.user;
-            AppSession.SessionId = res.sectionId;
+            AppSession.SessionId = res.sessionId;
+            AppSession.UserId = res._id;
 
             //Guardando en disco
             Properties.Settings.Default.Level = AppSession.Level;

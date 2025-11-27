@@ -16,5 +16,8 @@
 
         // Section Id
         public static string SessionId { get; set; }
+
+        // User Id
+        public static string UserId { get; set; }
     }
 }

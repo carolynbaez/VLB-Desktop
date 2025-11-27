@@ -15,16 +15,10 @@ namespace VlbBet.Infrastructure
         private readonly HttpClient _http;
         private readonly JsonSerializerOptions _json;
 
-        // ======= AJUSTA AQUÍ TUS RUTAS REALES =======
-        // Ejemplos:
-        // "/api/mlb/ticket/add"
-        // "/api/mlb/ticket/games"
-        // "/api/mlb/ticket/pay"
-        // "/api/mlb/ticket/cancel"
-        public string EndpointCreate { get; set; } = "/ticket/add";
-        public string EndpointListByGames { get; set; } = "/api/mlb/ticket/games";
-        public string EndpointPay { get; set; } = "/api/mlb/ticket/pay";
-        public string EndpointCancel { get; set; } = "/api/mlb/ticket/cancel";
+        public string EndpointCreate { get; set; } = "https://vlb.virsbet.com/ticket/";
+        public string EndpointListByGames { get; set; } = "https://vlb.virsbet.com/ticket/games";
+        public string EndpointPay { get; set; } = "https://vlb.virsbet.com/ticket/pay";
+        public string EndpointCancel { get; set; } = "/ticket/cancel";
         // ============================================
 
         // Si luego usas auth por header:
@@ -133,7 +127,7 @@ namespace VlbBet.Infrastructure
                 return ApiResult<TicketSendDto>.Fail("Monto a ganar Superado");
 
             // ✅ Ajusta esto a TU AppSession real.
-            // Yo usaré el patrón que mencionaste: AppSession tiene point, sectionId, user.
+            // Yo usaré el patrón que mencionaste: AppSession tiene point, sessionId, user.
 
             if (string.IsNullOrWhiteSpace(AppSession.Point))
                 return ApiResult<TicketSendDto>.Fail("No tiene Punto Asignado");
@@ -311,7 +305,7 @@ namespace VlbBet.Infrastructure
         [JsonPropertyName("point")]
         public string Point { get; set; } = "";
 
-        [JsonPropertyName("sectionId")]
+        [JsonPropertyName("sessionId")]
         public string? SectionId { get; set; }
 
         [JsonPropertyName("level")]

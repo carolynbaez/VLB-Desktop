@@ -15,11 +15,12 @@ namespace VlbBet.Core
     // Lo que tu API devuelve (ajusta los nombres si son distintos)
     public class AuthResponse
     {
-        public string sectionId { get; set; } 
+        public string sessionId { get; set; } 
         public string user { get; set; }  
         public string name { get; set; }
         public string level { get; set; }        
         public string point { get; set; }  
+        public string _id { get; set; }
     }
 
     public class Response

@@ -28,7 +28,7 @@ public sealed class ApiUser
     public string Point { get; set; } = "";
 
     // no lo usa tu Add, pero lo dejaste mencionado
-    [JsonPropertyName("sectionId")]
+    [JsonPropertyName("sessionId")]
     public string? SectionId { get; set; }
 
     [JsonPropertyName("level")]

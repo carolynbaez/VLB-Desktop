@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Drawing;
+using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using VlbBet.Core;
 using VlbBet.Infrastructure;
 
 namespace VlbBet.App
@@ -9,50 +11,42 @@ namespace VlbBet.App
     public partial class CajaForm : Form
     {
         private readonly TicketApiClient _ticketClient;
+        private readonly CashDrawerApiClient _cashDrawerApiClient;
 
         public CajaForm(TicketApiClient ticketClient = null)
         {
             InitializeComponent();
 
-            // Reusar cliente HTTP si viene desde BetForm
-            if (ticketClient != null)
-            {
-                _ticketClient = ticketClient;
-            }
-            else
-            {
-                var baseAddress = new Uri("https://vlb.virsbet.com/");
-                _ticketClient = new TicketApiClient(baseAddress);
-            }
+            var baseAddress = new Uri("https://vlb.virsbet.com/");
+
+            _ticketClient = ticketClient ?? new TicketApiClient(baseAddress);
+
+            // ✅ YA NO ES NULL: inicializamos el cliente de caja
+            _cashDrawerApiClient = new CashDrawerApiClient(baseAddress);
+
+            // Defaults del rango
+            dtpHasta.Value = DateTime.Now;
+            dtpDesde.Value = DateTime.Now.Date;
 
             ApplyStyle();
         }
 
         private void ApplyStyle()
         {
-            // Fondo general ya oscuro en Designer
-
-            // Card en color oscuro (ya en Designer)
             panelCard.BackColor = Color.FromArgb(18, 24, 44);
 
-            // DatePickers más integrados
             StyleDatePicker(dtpDesde);
             StyleDatePicker(dtpHasta);
 
-            // Botones con el mismo estilo que BetForm
-            StylePrimaryButton(btnImprimir); // azul
-            StyleAccentButton(btnBuscar);    // rojo
-
-            // Labels ya tienen colores puestos en Designer
+            StylePrimaryButton(btnImprimir);
+            StyleAccentButton(btnBuscar);
         }
-
-        // ==== Helpers de estilo (mismos tonos que BetForm) ====
 
         private void StylePrimaryButton(Button btn)
         {
             btn.FlatStyle = FlatStyle.Flat;
             btn.FlatAppearance.BorderSize = 0;
-            btn.BackColor = Color.FromArgb(33, 150, 243); // azul
+            btn.BackColor = Color.FromArgb(33, 150, 243);
             btn.ForeColor = Color.White;
             btn.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
             btn.Cursor = Cursors.Hand;
@@ -62,7 +56,7 @@ namespace VlbBet.App
         {
             btn.FlatStyle = FlatStyle.Flat;
             btn.FlatAppearance.BorderSize = 0;
-            btn.BackColor = Color.FromArgb(244, 67, 54); // rojo
+            btn.BackColor = Color.FromArgb(244, 67, 54);
             btn.ForeColor = Color.White;
             btn.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
             btn.Cursor = Cursors.Hand;
@@ -74,31 +68,95 @@ namespace VlbBet.App
             dtp.CalendarForeColor = Color.Black;
         }
 
-        // ==== LÓGICA (placeholder; luego conectamos con tu API Node) ====
+        private static string Money(decimal v)
+        {
+            // RD$ o US$ depende de tu Culture. Si quieres RD$, cambia a "es-DO"
+            // return v.ToString("N2", CultureInfo.GetCultureInfo("es-DO"));
+            return v.ToString("N2", CultureInfo.InvariantCulture);
+        }
+
+        private void SetLoading(bool loading)
+        {
+            btnBuscar.Enabled = !loading;
+            btnImprimir.Enabled = !loading;
+            Cursor = loading ? Cursors.WaitCursor : Cursors.Default;
+        }
+
+        private void ClearValues()
+        {
+            lblMontoApostadoVal.Text = "0.00";
+            lblRecargasVal.Text = "0.00";
+            lblMontoGanadoVal.Text = "0.00";
+            lblRetirosVal.Text = "0.00";
+            lblMontoPagadoVal.Text = "0.00";
+            lblBalanceVal.Text = "0.00";
+            lblTotalCajaVal.Text = "0.00";
+        }
 
         private async void btnBuscar_Click(object sender, EventArgs e)
         {
-            DateTime desde = dtpDesde.Value.Date;
-            DateTime hasta = dtpHasta.Value.Date;
+            var init = dtpDesde.Value.Date;
+            var end = dtpHasta.Value.Date;
 
+            if (end < init)
+            {
+                MessageBox.Show("La fecha 'end' no puede ser menor que 'init'.", "Rango inválido",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
 
+            try
+            {
+                SetLoading(true);
 
-            // Aquí debes llamar a tu endpoint de cuadre de caja.
-            // Por ahora solo simulo respuesta:
-            await Task.Delay(100);
+                // ✅ Llamada real al API (POST por defecto)
+                var balance = await _cashDrawerApiClient.GetBalanceAsync(init, end, AppSession.UserId, AppSession.Point); 
 
-            lblMontoApostadoVal.Text = "0";
-            lblRecargasVal.Text = "0";
-            lblMontoGanadoVal.Text = "0";
-            lblRetirosVal.Text = "0";
-            lblMontoPagadoVal.Text = "0";
-            lblBalanceVal.Text = "0";
-            lblTotalCajaVal.Text = "0";
+                // ✅ Pintar valores (si vienen null, usa 0)
+                var totalSales = balance?.Total ?? 0m;
+                var totalDeposits = balance?.Deposito ?? 0m;
+                var totalWins = balance?.Winned ?? 0m;
+                var totalWithdrawals = balance?.Balance ?? 0m;
+                var totalPaid = balance?.Paid ?? 0m;
+
+                // Puedes decidir si "Balance" y "TotalCaja" vienen servidos o los calculas aquí.
+                var balanceVal = totalSales - totalWins;
+                var totalCaja = balance?.Total ?? balanceVal;
+
+                lblMontoApostadoVal.Text = Money(balance.Betted ?? 0);     // betted
+                lblMontoGanadoVal.Text = Money(balance.Winned ?? 0);     // winned
+                lblMontoPagadoVal.Text = Money(balance.Paid ?? 0);       // paid
+                lblBalanceVal.Text = Money(balance.Balance ?? 0);    // balance
+                lblRecargasVal.Text = Money(balance.Deposito ?? 0);   // deposito
+                lblRetirosVal.Text = Money(balance.Retiro ?? 0);     // retiro
+                lblTotalCajaVal.Text = Money(totalCaja);      // total
+
+                var printObject = new PrintObject();
+                printObject.logo = "MLB";
+                printObject.Type = "Cuadre";
+                printObject.data = balance;
+
+                await PrintModule.ToPrintAsync(printObject);
+
+            }
+            catch (Exception ex)
+            {
+                ClearValues();
+                MessageBox.Show(
+                    "No se pudo obtener el cuadre de caja.\n\n" + ex.Message,
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+            }
+            finally
+            {
+                SetLoading(false);
+            }
         }
 
         private void btnImprimir_Click(object sender, EventArgs e)
         {
-            // Aquí integrarás tu ToPrint o impresión nativa
             MessageBox.Show("Impresión de reporte de caja (pendiente implementar).",
                 "Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
