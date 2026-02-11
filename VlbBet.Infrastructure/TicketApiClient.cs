@@ -64,12 +64,11 @@ namespace VlbBet.Infrastructure
                 {
                     Code = b.Code ?? "",
                     Betted = b.Betted ?? "",
-                    Rate = b.Rate
+                    Rate = b.Rate,
+                    Option = b.Option
                 })
             };
 
-            // Node a veces responde string, a veces {msg:'ok', ticket:{...}}
-            // Lo manejamos como "raw" y parseo flexible:
             var raw = await PostRawAsync(AddEndpoint, req, ct);
             return AddTicketResponse.Parse(raw);
         }
@@ -148,6 +147,9 @@ namespace VlbBet.Infrastructure
 
         [JsonPropertyName("rate")]
         public decimal Rate { get; set; }
+
+        [JsonPropertyName("option")]
+        public string Option { get; set; }
     }
 
     public sealed class AddTicketRequest
