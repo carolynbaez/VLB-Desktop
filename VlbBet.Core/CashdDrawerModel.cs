@@ -6,55 +6,67 @@ using System.Text.Json;
 
 namespace VlbBet.Core
 {
-    public class CashBalanceDto
+    public sealed class CashDrawerBalanceRequest
     {
-        // Id del balance/cuadre (si existe en tu API)
-        [JsonPropertyName("_id")]
-        public string Id { get; set; }
+        [JsonPropertyName("init")]
+        public DateTime init { get; set; }
 
-        // Punto / banca
+        [JsonPropertyName("end")]
+        public DateTime end { get; set; }
+
+        [JsonPropertyName("user")]
+        public UserReq User { get; set; }
+    }
+
+    public sealed class UserReq
+    {
+        [JsonPropertyName("_id")]
+        public string _Id { get; set; }
+
+        [JsonPropertyName("point")]
+        public string Point { get; set; }
+    }
+
+    public sealed class CashDrawerBalanceDto
+    {
+        [JsonPropertyName("betted")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Betted { get; set; }
+
+        [JsonPropertyName("winned")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Winned { get; set; }
+
+        [JsonPropertyName("paid")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Paid { get; set; }
+
+        [JsonPropertyName("balance")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Balance { get; set; }
+
+        [JsonPropertyName("deposito")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Deposito { get; set; }
+
+        [JsonPropertyName("retiro")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Retiro { get; set; }
+
+        [JsonPropertyName("balancePlayer")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? BalancePlayer { get; set; }
+
+        [JsonPropertyName("total")]
+        [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+        public decimal? Total { get; set; }
+
+        [JsonPropertyName("point")]
         public string Point { get; set; }
 
-        // Usuario/cuadrador
-        public string User { get; set; }
-
-        // Totales típicos (pueden variar según tu backend)
-        public decimal TotalSales { get; set; }      // total vendido
-        public decimal TotalPaid { get; set; }       // total pagado
-        public decimal Net { get; set; }             // neto
-
-        public DateTime? From { get; set; }
-        public DateTime? To { get; set; }
-
-        // Captura cualquier cosa extra sin romper
-        [JsonExtensionData]
-        public Dictionary<string, JsonElement> Extra { get; set; }
+        [JsonPropertyName("tickets")]
+        public JsonElement Tickets { get; set; }
     }
-
-    public class CashTicketDto
-    {
-        // En tu tabla de React se usa item.num
-        public string Num { get; set; }
-
-        // A veces viene _id en el listado
-        [JsonPropertyName("_id")]
-        public string Id { get; set; }
-
-        public decimal Amount { get; set; }
-        public decimal Pay { get; set; }
-
-        public DateTime? Date { get; set; }
-
-        [JsonExtensionData]
-        public Dictionary<string, JsonElement> Extra { get; set; }
-    }
-
-    public class PrintBatchResult
-    {
-        public List<PrintTicketResult> Success { get; } = new List<PrintTicketResult>();
-        public List<PrintTicketResult> Failed { get; } = new List<PrintTicketResult>();
-    }
-
     public class PrintTicketResult
     {
         public string Ticket { get; set; }

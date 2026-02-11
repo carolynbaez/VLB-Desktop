@@ -13,13 +13,6 @@ namespace VlbBet.App
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-
-            AppState.Api = new ApiSession("https://vlb.virsbet.com");
-            Application.ApplicationExit += (s, e) =>
-            {
-                if (AppState.Api != null) AppState.Api.Dispose();
-            };
-
             Application.Run(new LoginForm());
         }
     }

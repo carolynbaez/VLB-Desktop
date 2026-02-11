@@ -17,12 +17,11 @@ namespace VlbBet.App
         {
             InitializeComponent();
 
-            var baseAddress = new Uri("https://vlb.virsbet.com/");
+            var baseAddress = "https://vlb.virsbet.com/";
 
-            _ticketClient = ticketClient ?? new TicketApiClient(baseAddress);
+            _ticketClient = ticketClient ?? new TicketApiClient(new ApiSession(new Uri(baseAddress)));
 
-            // ✅ YA NO ES NULL: inicializamos el cliente de caja
-            _cashDrawerApiClient = new CashDrawerApiClient(baseAddress);
+            _cashDrawerApiClient = new CashDrawerApiClient(new Uri(baseAddress));
 
             // Defaults del rango
             dtpHasta.Value = DateTime.Now;

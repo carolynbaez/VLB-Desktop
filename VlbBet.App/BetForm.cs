@@ -12,6 +12,8 @@ namespace VlbBet.App
     public partial class BetForm : Form
     {
         private readonly BetService _betService = new BetService();
+
+        private ApiSession _apiSession;
         private TicketApiClient _ticketClient;
         private MqttGameClient _mqttClient;
         private bool _mqttConnected = false;
@@ -32,9 +34,12 @@ namespace VlbBet.App
             {
                 ApplyModernStyle();
                 ConfigureBetsGrid();
+                ConfigureTicketsGrid();
 
-                var baseAddress = new Uri("https://vlb.virsbet.com"); // AJUSTA AQUÍ
-                _ticketClient = new TicketApiClient(baseAddress);
+                var baseAddress = "https://vlb.virsbet.com/";
+
+                _apiSession = new ApiSession(new Uri (baseAddress));
+                _ticketClient = new TicketApiClient(_apiSession);
 
                 _mqttClient = new MqttGameClient("vlb.virsbet.com", 1883);
                 _mqttClient.GamesLineReceived += OnGamesLineReceived;
@@ -47,11 +52,9 @@ namespace VlbBet.App
 
                 pnlOverlay.Visible = false;
 
-                // Estado inicial WAIT (antes de conectar)
                 UpdateWaitScreen();
 
                 this.Load += async delegate { await BetForm_LoadAsync(); };
-
                 this.Resize += delegate { ApplyRoundedButtons(); };
             }
             catch (Exception ex)
@@ -67,7 +70,7 @@ namespace VlbBet.App
 
         private void ApplyModernStyle()
         {
-            this.BackColor = Color.FromArgb(10, 16, 30);
+            BackColor = Color.FromArgb(10, 16, 30);
 
             panelNav.BackColor = Color.FromArgb(16, 32, 64);
             panelMain.BackColor = Color.FromArgb(18, 24, 44);
@@ -77,7 +80,7 @@ namespace VlbBet.App
             StyleDangerButton(btnNavCerrar);
 
             StyleSecondaryButton(btnCancelBet);
-            StyleWarningButton(btnGenerateTicket);
+            StyleWarningButton(btnGenerateTicket);   // ✅ botón amarillo
             StyleSecondaryButton(btnRefreshTickets);
 
             StyleSecondaryButton(btnPayCancel);
@@ -208,33 +211,16 @@ namespace VlbBet.App
             dgvBets.AutoGenerateColumns = false;
             dgvBets.Columns.Clear();
 
-            dgvBets.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                DataPropertyName = "Number",
-                HeaderText = "Número",
-                FillWeight = 15
-            });
+            dgvBets.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Number", HeaderText = "#", FillWeight = 10 });
+            dgvBets.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Option", HeaderText = "Código", FillWeight = 15 });
+            dgvBets.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Betted", HeaderText = "Apuesta", FillWeight = 55 });
+            dgvBets.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Rate", HeaderText = "Línea", FillWeight = 20 });
+        }
 
-            dgvBets.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                DataPropertyName = "Option",
-                HeaderText = "Código",
-                FillWeight = 20
-            });
-
-            dgvBets.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                DataPropertyName = "Betted",
-                HeaderText = "Apuesta",
-                FillWeight = 45
-            });
-
-            dgvBets.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                DataPropertyName = "Rate",
-                HeaderText = "Línea",
-                FillWeight = 20
-            });
+        private void ConfigureTicketsGrid()
+        {
+            if (dgvTickets == null) return;
+            dgvTickets.AutoGenerateColumns = true;
         }
 
         // ===== CARGA / MQTT / API =====
@@ -246,8 +232,8 @@ namespace VlbBet.App
                 if (_mqttClient != null)
                     await _mqttClient.ConnectAsync();
 
-                if (_ticketClient != null)
-                    await LoadTicketsAsync();
+                _apiSession.ApplyAuthorizationFromApp();
+                await LoadTicketsAsync();
             }
             catch (Exception ex)
             {
@@ -264,7 +250,7 @@ namespace VlbBet.App
 
             try
             {
-                var list = await _ticketClient.GetTicketGamesAsync();
+                var list = await _ticketClient.GetGamesAsync();
                 dgvTickets.DataSource = null;
                 dgvTickets.DataSource = list;
             }
@@ -289,10 +275,6 @@ namespace VlbBet.App
             _evento = e.Num;
             _program = e.Games ?? new List<Game>();
 
-            ProgramState.Active = _active;
-            ProgramState.Evento = _evento;
-            ProgramState.Program = _program;
-
             lblEvento.Text = $"VLB-{_evento}";
 
             UpdateWaitScreen();
@@ -305,7 +287,6 @@ namespace VlbBet.App
                 BeginInvoke(new Action(() => OnHourReceived(sender, e)));
                 return;
             }
-
             _unixHourTarget = e.Hour;
         }
 
@@ -333,12 +314,12 @@ namespace VlbBet.App
 
             string txt = (txtBetInput.Text ?? "").Trim();
 
-            // Si está vacío => etapa de confirmar (pasar a monto)
+            // Enter con vacío => etapa calcular / pasar a monto
             if (string.IsNullOrEmpty(txt))
             {
-                if (_betted.Count < 3 || _betted.Count > 12)
+                if (_betted.Count < 3 || _betted.Count > 10) // ✅ backend 3..10
                 {
-                    MessageBox.Show("La jugada debe estar entre 3 y 12 apuestas.");
+                    MessageBox.Show("La jugada debe estar entre 3 y 10 apuestas.");
                     txtBetInput.Focus();
                     return;
                 }
@@ -363,7 +344,7 @@ namespace VlbBet.App
                 return;
             }
 
-            // Si tiene texto => agregar jugada
+            // Agregar jugada
             if (!_mqttConnected || !_active || _program == null || _program.Count == 0)
             {
                 MessageBox.Show("No hay línea activa para vender ahora.", "Info");
@@ -424,15 +405,16 @@ namespace VlbBet.App
                 return;
             }
 
+            // ✅ Reglas de venta válidas
             if (!_mqttConnected || !_active || _program == null || _program.Count == 0)
             {
                 MessageBox.Show("No hay línea activa para vender ahora.", "Info");
                 return;
             }
 
-            if (_betted.Count < 3 || _betted.Count > 12)
+            if (_betted.Count < 3 || _betted.Count > 10)
             {
-                MessageBox.Show("La jugada debe estar entre 3 y 12 apuestas.");
+                MessageBox.Show("La jugada debe estar entre 3 y 10 apuestas.");
                 txtBetInput.Focus();
                 return;
             }
@@ -445,13 +427,10 @@ namespace VlbBet.App
                 return;
             }
 
-            if (!decimal.TryParse(lblAmountWin.Text, out var amountWin))
-            {
-                amountWin = _betService.CalculateAmountWin(_betted, amount);
-                lblAmountWin.Text = ((int)amountWin).ToString();
-            }
+            var amountWin = _betService.CalculateAmountWin(_betted, amount);
+            lblAmountWin.Text = ((int)amountWin).ToString();
 
-            if (amountWin >= 100000)
+            if (amountWin > 100000)
             {
                 MessageBox.Show("Monto a ganar superado.");
                 return;
@@ -459,11 +438,13 @@ namespace VlbBet.App
 
             try
             {
-                var resp = await _ticketClient.CreateTicketAsync(_betted, amount, amountWin);
+                // ✅ Llama al endpoint /ticket/add (Node: Add)
+                var resp = await _ticketClient.AddAsync(_betted, amount, amountWin);
 
-                if (resp != null && resp.Msg == "ok" && resp.Data != null)
+                // resp puede venir "ok" o mensaje plano
+                if (resp != null && resp.Msg == "ok" && resp.Ticket != null)
                 {
-                    MessageBox.Show("Ticket creado: " + resp.Data.Num);
+                    MessageBox.Show("Ticket creado: " + resp.Ticket.Num);
 
                     _betted.Clear();
                     dgvBets.DataSource = null;
@@ -474,9 +455,9 @@ namespace VlbBet.App
 
                     await LoadTicketsAsync();
                 }
-                else if (resp != null && resp.Msg != "ok")
+                else if (resp != null && !string.IsNullOrWhiteSpace(resp.Msg))
                 {
-                    MessageBox.Show(resp.Msg, "Error al crear ticket");
+                    MessageBox.Show(resp.Msg, "Servidor");
                 }
                 else
                 {
@@ -514,7 +495,7 @@ namespace VlbBet.App
 
         private void btnNavCerrar_Click(object sender, EventArgs e)
         {
-            this.Close();
+            Close();
         }
 
         private void btnNavPagar_Click(object sender, EventArgs e)
@@ -530,17 +511,14 @@ namespace VlbBet.App
             pnlOverlay.BringToFront();
             pnlPayModal.BringToFront();
 
-            pnlPayModal.Left = (this.ClientSize.Width - pnlPayModal.Width) / 2;
-            pnlPayModal.Top = (this.ClientSize.Height - pnlPayModal.Height) / 2;
+            pnlPayModal.Left = (ClientSize.Width - pnlPayModal.Width) / 2;
+            pnlPayModal.Top = (ClientSize.Height - pnlPayModal.Height) / 2;
 
             pnlOverlay.Visible = true;
             txtPayTicketNumber.Focus();
         }
 
-        private void HidePayModal()
-        {
-            pnlOverlay.Visible = false;
-        }
+        private void HidePayModal() => pnlOverlay.Visible = false;
 
         private async Task PayTicketAsync(string ticketNumber)
         {
@@ -559,9 +537,31 @@ namespace VlbBet.App
 
             try
             {
-                string respRaw = await _ticketClient.PayTicketRawAsync(tk, "pay");
-                MessageBox.Show(respRaw, "Respuesta pago");
+                // 1) primera llamada => winner (verify) o msg
+                var r1 = await _ticketClient.PayTicketAsync(tk, "pay");
+
+                if (r1 != null && r1.Msg == "verify" && r1.Winner != null)
+                {
+                    var w = r1.Winner;
+                    var txt = $"GANADOR ✅\n\n" +
+                              $"Monto a pagar: {w.AmountToPay:n2}\n" +
+                              $"¿CONFIRMAR PAGO?";
+
+                    var ok = MessageBox.Show(txt, "Verificación de pago", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    if (ok == DialogResult.Yes)
+                    {
+                        // 2) segunda llamada => paga
+                        var r2 = await _ticketClient.PayTicketAsync(tk, "pay");
+                        MessageBox.Show(r2?.Msg ?? "Pagado", "Pago");
+                        HidePayModal();
+                        await LoadTicketsAsync();
+                    }
+                    return;
+                }
+
+                MessageBox.Show(r1?.Msg ?? "Respuesta vacía", "Pago");
                 HidePayModal();
+                await LoadTicketsAsync();
             }
             catch (Exception ex)
             {
@@ -600,30 +600,18 @@ namespace VlbBet.App
         {
             bool hasProgram = (_program != null && _program.Count > 0);
 
-            // WAIT se muestra si:
-            // - no hay conexión, o
-            // - no llegó programa aún, o
-            // - línea llegó pero está inactiva
             bool showWait = (!_mqttConnected) || (!hasProgram) || (!_active);
 
             if (lblWaitMessage != null)
             {
                 if (!_mqttConnected)
-                {
                     lblWaitMessage.Text = "CONECTANDO AL BROKER...\r\n\r\n(REVISAR RED / PUERTO 1883)";
-                }
                 else if (!hasProgram)
-                {
                     lblWaitMessage.Text = "LEYENDO LÍNEA...\r\n\r\n(ESPERANDO DATOS DE MQTT)";
-                }
                 else if (!_active)
-                {
                     lblWaitMessage.Text = "ESPERANDO PRÓXIMA LÍNEA...\r\n\r\n(NO SE PERMITEN VENTAS)";
-                }
                 else
-                {
                     lblWaitMessage.Text = "";
-                }
             }
 
             if (pnlWait != null)
@@ -648,8 +636,9 @@ namespace VlbBet.App
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             base.OnFormClosed(e);
-            if (_mqttClient != null) _mqttClient.Dispose();
-            if (_ticketClient != null) _ticketClient.Dispose();
+
+            try { _mqttClient?.Dispose(); } catch { }
+            try { _apiSession?.Dispose(); } catch { }
         }
     }
 }
